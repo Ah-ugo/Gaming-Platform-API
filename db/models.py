@@ -141,8 +141,9 @@ class DepositBase(BaseModel):
     reference: str
     status: DepositStatus = DepositStatus.PENDING
 
-class DepositCreate(DepositBase):
-    pass
+class DepositCreate(BaseModel):
+    amount: float
+    reference: str
 
 class DepositUpdate(BaseModel):
     status: DepositStatus
@@ -150,6 +151,12 @@ class DepositUpdate(BaseModel):
 class Deposit(DepositBase, MongoBaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @field_validator('user_id', mode='before')
+    def convert_objectid_to_str(cls, v):
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
 
 # Transaction models
 class TransactionType(str, Enum):
