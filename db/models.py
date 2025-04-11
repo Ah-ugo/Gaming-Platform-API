@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Annotated
-from pydantic import BaseModel, Field, EmailStr, BeforeValidator, ConfigDict
+from pydantic import BaseModel, Field, EmailStr, BeforeValidator, ConfigDict, field_validator
 from bson import ObjectId
 
 # Custom ObjectId field for MongoDB
@@ -177,6 +177,45 @@ class TransactionCreate(TransactionBase):
 
 class Transaction(TransactionBase, MongoBaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BankAccount(BaseModel):
+    account_number: str = Field(..., min_length=10, max_length=20)
+    account_name: str = Field(..., min_length=2, max_length=100)
+    bank_name: str = Field(..., min_length=2, max_length=100)
+    bank_code: Optional[str] = None
+
+
+class WithdrawalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class WithdrawalBase(BaseModel):
+    user_id: PyObjectId
+    amount: float = Field(..., gt=0)
+    bank_account: BankAccount
+    status: WithdrawalStatus = WithdrawalStatus.PENDING
+    reference: Optional[str] = None
+
+class WithdrawalCreate(BaseModel):
+    amount: float = Field(..., gt=0)
+    bank_account: BankAccount
+    reference: Optional[str] = None
+
+class WithdrawalUpdate(BaseModel):
+    status: WithdrawalStatus
+    admin_notes: Optional[str] = None
+
+class Withdrawal(WithdrawalBase, MongoBaseModel):
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @field_validator('user_id', mode='before')
+    def convert_objectid_to_str(cls, v):
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
 
 # Token model
 class Token(BaseModel):

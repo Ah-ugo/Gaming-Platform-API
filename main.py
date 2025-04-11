@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
-from api.routes import auth, users, games, deposits, stats, transactions
+from api.routes import auth, users, games, deposits, stats, transactions, withdrawals
 from db.database import connect_to_mongo, close_mongo_connection
 
 app = FastAPI(
@@ -33,6 +33,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(games.router, prefix="/api/games", tags=["Games"])
 app.include_router(deposits.router, prefix="/api/deposits", tags=["Deposits"])
+app.include_router(withdrawals.router, prefix="/api/withdrawals", tags=["Withdrawals"])
 app.include_router(transactions.router, prefix="/api/transactions", tags=["Transactions"])
 app.include_router(stats.router, prefix="/api/stats", tags=["Statistics"])
 
