@@ -8,6 +8,7 @@ from services.transaction_service import (
     get_user_transactions,
     create_transaction
 )
+from services.user_service import update_user_balance
 import logging
 from bson import ObjectId
 
@@ -133,6 +134,42 @@ async def create_new_transaction(
         )
     except Exception as e:
         logger.error(f"Internal server error creating transaction: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+@router.post("/game", response_model=Transaction)
+async def create_game_transaction(
+        transaction_data: TransactionCreate,
+        current_user: User = Depends(get_current_active_user)
+):
+    """Record a game transaction and update user balance"""
+    try:
+        # Validate the transaction data
+        if transaction_data.type != "game":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid transaction type"
+            )
+
+        # Create the transaction
+        transaction = await create_transaction(transaction_data)
+
+        # Update user balance
+        balance_change = transaction_data.payout if transaction_data.result == "win" else -transaction_data.amount
+        await update_user_balance(transaction_data.user_id, balance_change)
+
+        return transaction
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Error recording game transaction: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
