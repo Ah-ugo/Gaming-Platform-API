@@ -162,7 +162,8 @@ class GameResult(str, Enum):
     LOSE = "lose"
 
 class TransactionBase(BaseModel):
-    user_id: PyObjectId
+    # user_id: PyObjectId
+    user_id: Optional[str] = None
     type: TransactionType
     amount: float
     game_id: Optional[PyObjectId] = None
@@ -172,7 +173,7 @@ class TransactionBase(BaseModel):
     reference: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
-    pass
+    timestamp: Optional[datetime] = None
 
 class Transaction(TransactionBase, MongoBaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)

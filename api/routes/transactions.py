@@ -11,6 +11,7 @@ from services.transaction_service import (
 from services.user_service import update_user_balance
 import logging
 from bson import ObjectId
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -145,36 +146,38 @@ async def create_game_transaction(
         transaction_data: TransactionCreate,
         current_user: User = Depends(get_current_active_user)
 ):
-    """Record a game transaction and update user balance"""
+    """Record a game transaction"""
     try:
-        # Validate the transaction data
+        # Set automatic fields
+        transaction_data.user_id = str(current_user.id)
+        transaction_data.timestamp = datetime.utcnow()
+
+        # Validate required fields
         if transaction_data.type != "game":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid transaction type"
-            )
+            raise ValueError("Transaction type must be 'game'")
+
+        if transaction_data.amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        logger.info(f"Creating game transaction: {transaction_data}")
 
         # Create the transaction
         transaction = await create_transaction(transaction_data)
 
-        # Update user balance
-        balance_change = transaction_data.payout if transaction_data.result == "win" else -transaction_data.amount
-        await update_user_balance(transaction_data.user_id, balance_change)
-
         return transaction
 
     except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
     except Exception as e:
-        logger.error(f"Error recording game transaction: {str(e)}")
+        logger.error(f"Transaction error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
-
 # @router.post("/", response_model=Transaction)
 # async def create_new_transaction(
 #     transaction_data: TransactionCreate,

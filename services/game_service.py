@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import random
 from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from db.database import get_database
-from db.models import Game, GameCreate, GameUpdate
+from db.models import Game, GameCreate, GameUpdate, TransactionCreate
+from services.transaction_service import create_transaction
+from services.user_service import update_user_balance
 
 logger = logging.getLogger(__name__)
 
@@ -128,3 +131,46 @@ async def delete_game(game_id: str) -> Optional[Game]:
     if result.deleted_count:
         return game
     return None
+
+
+# In your game_service.py
+async def play_game(user_id: str, game_id: str, stake: float) -> dict:
+    """Execute game logic and record transaction"""
+    db = get_database()
+
+    try:
+        # Get game details
+        game = await get_game_by_id(game_id)
+        if not game:
+            raise ValueError("Game not found")
+
+        # Execute game logic (example for coin flip)
+        result = random.choice(['win', 'lose'])
+        payout = stake * 2 if result == 'win' else 0
+
+        # Create transaction
+        transaction = await create_transaction(TransactionCreate(
+            user_id=user_id,
+            type="game",
+            game_id=game_id,
+            game_name=game.title,
+            amount=stake,
+            result=result,
+            payout=payout,
+            reference=f"GAME_{game_id}_{datetime.utcnow().timestamp()}"
+        ))
+
+        # Update user balance
+        balance_change = payout if result == 'win' else -stake
+        await update_user_balance(user_id, balance_change)
+
+        return {
+            'status': 'success',
+            'result': result,
+            'payout': payout,
+            'transaction_id': str(transaction.id)
+        }
+
+    except Exception as e:
+        logger.error(f"Game play failed: {str(e)}")
+        raise
