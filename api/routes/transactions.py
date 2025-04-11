@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from api.deps import get_current_active_user, get_admin_user
+from db.database import get_database
 from db.models import Transaction, User, TransactionCreate
 from services.transaction_service import (
     get_transaction_by_id,
@@ -12,6 +13,7 @@ from services.user_service import update_user_balance
 import logging
 from bson import ObjectId
 from datetime import datetime
+from motor.motor_asyncio import AsyncIOMotorDatabase as Database
 
 logger = logging.getLogger(__name__)
 
@@ -144,40 +146,69 @@ async def create_new_transaction(
 @router.post("/game", response_model=Transaction)
 async def create_game_transaction(
         transaction_data: TransactionCreate,
-        current_user: User = Depends(get_current_active_user)
+        current_user: User = Depends(get_current_active_user),
+        db: Database = Depends(get_database)
 ):
-    """Record a game transaction"""
-    try:
-        # Set automatic fields
-        transaction_data.user_id = str(current_user.id)
-        transaction_data.timestamp = datetime.utcnow()
+    """Record a game transaction and update balance atomically"""
+    async with await db.client.start_session() as session:
+        try:
+            async with session.start_transaction():
+                # Set automatic fields
+                transaction_data.user_id = str(current_user.id)
+                transaction_data.timestamp = datetime.utcnow()
 
-        # Validate required fields
-        if transaction_data.type != "game":
-            raise ValueError("Transaction type must be 'game'")
+                # Create the transaction document
+                transaction_dict = {
+                    "_id": ObjectId(),
+                    "user_id": ObjectId(transaction_data.user_id),
+                    "type": transaction_data.type,
+                    "amount": transaction_data.amount,
+                    "timestamp": transaction_data.timestamp,
+                    "reference": transaction_data.reference
+                }
 
-        if transaction_data.amount <= 0:
-            raise ValueError("Amount must be positive")
+                # Add optional fields
+                if transaction_data.game_id:
+                    transaction_dict["game_id"] = ObjectId(transaction_data.game_id)
+                if transaction_data.game_name:
+                    transaction_dict["game_name"] = transaction_data.game_name
+                if transaction_data.result:
+                    transaction_dict["result"] = transaction_data.result
+                if transaction_data.payout:
+                    transaction_dict["payout"] = transaction_data.payout
 
-        logger.info(f"Creating game transaction: {transaction_data}")
+                # Insert the transaction
+                await db.transactions.insert_one(transaction_dict, session=session)
 
-        # Create the transaction
-        transaction = await create_transaction(transaction_data)
+                # Calculate balance change
+                balance_change = -transaction_data.amount  # Deduct the stake
+                if transaction_data.result == "win":
+                    balance_change += transaction_data.payout
 
-        return transaction
+                # Update user balance
+                await db.users.update_one(
+                    {"_id": ObjectId(current_user.id)},
+                    {"$inc": {"balance": balance_change}},
+                    session=session
+                )
 
-    except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as e:
-        logger.error(f"Transaction error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
+                # Convert ObjectIds to strings for the response
+                transaction_dict["_id"] = str(transaction_dict["_id"])
+                transaction_dict["user_id"] = str(transaction_dict["user_id"])
+                if "game_id" in transaction_dict:
+                    transaction_dict["game_id"] = str(transaction_dict["game_id"])
+
+                return Transaction.model_validate(transaction_dict)
+
+        except Exception as e:
+            logger.error(f"Transaction failed: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to process transaction"
+            )
+
+
+
 # @router.post("/", response_model=Transaction)
 # async def create_new_transaction(
 #     transaction_data: TransactionCreate,
